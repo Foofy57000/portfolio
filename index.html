@@ -198,7 +198,7 @@ function init() {
     // ==========================
 
     video = document.createElement("video");
-    video.src = "videos/video.mp4"; // chemin vers ta vidéo
+    video.src = "video.mp4"; // chemin vers ta vidéo
     video.crossOrigin = "anonymous";
     video.loop = true;
     video.muted = true;
@@ -405,9 +405,8 @@ function applyHover(obj, state) {
             duration: 0.25,
             ease: "power2.out"
         });
-    }
-
-    if (type === "projet") {
+    } 
+     if (type === "projet") {
 
         gsap.to(obj.scale, {
             x: state ? base.x * 1.2 : base.x,
