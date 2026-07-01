@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Three.js Hover Debug Stable</title>
+
+<style>
+body { margin: 0; overflow: hidden; background: #222; font-family: Arial; }
+canvas { display: block; }
+
+#loading-screen{
+    position: fixed;
+    inset: 0;
+    background: #2a0f4e;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    flex-direction:column;
+    color:white;
+    z-index: 1000;
+}
+
+#progress-bar{
+    width:300px;
+    height:10px;
+    background:#401d49;
+    margin:20px;
+    border-radius:6px;
+    overflow:hidden;
+}
+
+#progress{
+    width:0%;
+    height:100%;
+    background:linear-gradient(90deg,#ff9eec,#fff);
+}
+
+#modal{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.85);
+    justify-content:center;
+    align-items:center;
+}
+
+.modal-content{
+    background:#2a0f4e;
+    color:white;
+    padding:20px;
+    border-radius:12px;
+}
+
+/* AJOUT UNIQUEMENT */
+#modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: #2a0f4e;
+    color: white;
+    padding: 20px;
+    border-radius: 12px;
+    position: relative;
+}
+
+#closeModal{
+    position:absolute;
+    top:8px;
+    right:10px;
+    background:transparent;
+    border:none;
+    color:white;
+    font-size:18px;
+    cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div id="loading-screen">
+    <h2>Loading...</h2>
+    <div id="progress-bar"><div id="progress"></div></div>
+    <button id="enter">ENTER</button>
+</div>
+
+<div id="modal">
+    <div class="modal-content">
+        <!-- AJOUT UNIQUEMENT -->
+        <button id="closeModal">✕</button>
+        <h2 id="title"></h2>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<script>
+let scene, camera, renderer, controls;
+let raycaster, pointer;
+
+let model;
+let hitboxes = [];
+
+let currentHover = null;
+let isLoaded = false;
+
+/* ✅ AJOUT */
+let isModalOpen = false;
+let clickBlocked = false;
+
+let video;
+let videoTexture;
+
+
+/* ================= INIT ================= */
+
+init();
+animate();
+
+function init() {
+
+    scene = new THREE.Scene();
+
+    camera = new THREE.PerspectiveCamera(
+        35,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        200
+    );
+
+    camera.position.set(15, 10, 15);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    controls.minDistance = 5;
+    controls.maxDistance = 45;
+
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI / 2;
+
+    controls.minAzimuthAngle = 0;
+    controls.maxAzimuthAngle = Math.PI / 2;
+
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    controls.update();
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(5, 10, 15);
+    scene.add(light);
+
+    raycaster = new THREE.Raycaster();
+    pointer = new THREE.Vector2();
+
+    const manager = new THREE.LoadingManager();
+
+    manager.onProgress = (url, loaded, total) => {
+        const percent = Math.round((loaded / total) * 100);
+        document.getElementById("progress").style.width = percent + "%";
+    };
+
+    manager.onLoad = () => {
+        const enter = document.getElementById("enter");
+        enter.disabled = false;
+        enter.style.cursor = "pointer";
+    };
+
+    const loader = new THREE.GLTFLoader(manager);
+
+    loader.load("scene.glb", (gltf) => {
+
+    model = gltf.scene;
+    scene.add(model);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    model.position.sub(center);
+
+    // ==========================
+    // VIDEO
+    // ==========================
+
+    video = document.createElement("video");
+    video.src = "videos/video.mp4"; // chemin vers ta vidéo
+    video.crossOrigin = "anonymous";
+    video.loop = true;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    video.play();
+
+    videoTexture = new THREE.VideoTexture(video);
+    videoTexture.flipY = false;
+    videoTexture.minFilter = THREE.LinearFilter;
+    videoTexture.magFilter = THREE.LinearFilter;
+    videoTexture.format = THREE.RGBFormat;
+
+    model.traverse((child) => {
+
+        if (!child.isMesh) return;
+
+        // Remplace "Screen" par le nom du mesh
+        if (child.name === "Zizii") {
+
+            child.material = new THREE.MeshBasicMaterial({
+                map: videoTexture
+            });
+
+        }
+
+    });
+
+    createHitboxes(model);
+
+});
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("click", onClick);
+    window.addEventListener("resize", onResize);
+
+    document.getElementById("enter").onclick = () => {
+
+        gsap.to("#loading-screen", {
+            y: "100vh",
+            duration: 1,
+            ease: "power2.inOut",
+            onComplete: () => {
+                document.getElementById("loading-screen").remove();
+                isLoaded = true;
+            }
+        });
+
+    };
+
+    const modal = document.getElementById("modal");
+    const closeBtn = document.getElementById("closeModal");
+
+    function closeModal() {
+        modal.style.display = "none";
+        isModalOpen = false;
+
+        clickBlocked = true;
+
+        setTimeout(() => {
+            clickBlocked = false;
+        }, 250);
+    }
+
+    closeBtn.addEventListener("click", closeModal);
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeModal();
+    });
+}
+
+/* ================= HITBOX ================= */
+
+function createHitboxes(root) {
+    root.traverse((obj) => {
+        if (!obj.isMesh) return;
+
+        // Trouver le manga parent
+        let mangaObject = null;
+        let current = obj;
+        while (current) {
+            if (current.name.includes("_Manga") || current.name.includes("Manga")) {
+                mangaObject = current;
+                break;
+            }
+            current = current.parent;
+        }
+
+        const isProjet = obj.name.includes("_Projet");
+        const isRaycaster = obj.name.includes("_Raycaster");
+        const isTarget = obj.name.includes("_Target");
+
+        if (!isProjet && !isRaycaster && !isTarget && !mangaObject) return;
+
+        console.log("HITBOX OK FOR:", obj.name, "- Manga parent:", !!mangaObject ? mangaObject.name : null);
+
+        obj.updateWorldMatrix(true, false);
+
+        const box = new THREE.Box3().setFromObject(obj);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        const hit = new THREE.Mesh(
+            new THREE.BoxGeometry(size.x, size.y, size.z),
+            new THREE.MeshBasicMaterial({
+                wireframe: true,
+                color: mangaObject ? 0x00ffff : 0xff00ff,
+                transparent: true,
+                opacity: 0.25
+            })
+        );
+
+        hit.position.copy(center);
+        hit.userData.target = mangaObject || obj;   // ← C’est la clé
+        hit.userData.isManga = !!mangaObject;
+
+        scene.add(hit);
+        hitboxes.push(hit);
+    });
+}
+
+function getType(obj) {
+    if (!obj) return null;
+
+    let current = obj;
+    while (current) {
+        if (current.name.includes("_Projet")) return "projet";
+        if (current.name.includes("_Raycaster")) return "raycaster";
+        if (current.name.includes("_Target")) return "target";
+        if (current.name.includes("_Manga") || current.name.includes("Manga")) return "manga";
+        current = current.parent;
+    }
+    return null;
+}
+
+function handleHover() {
+
+    /* ✅ AJOUT BLOQUANT */
+    if (!isLoaded || isModalOpen) return;
+
+    raycaster.setFromCamera(pointer, camera);
+
+    const hits = raycaster.intersectObjects(hitboxes);
+
+    if (!hits.length) {
+        resetHover();
+        document.body.style.cursor = "default";
+        return;
+    }
+
+    const target = hits[0].object.userData.target;
+
+    if (target === currentHover) return;
+
+    resetHover();
+
+    currentHover = target;
+
+    applyHover(target, true);
+
+    document.body.style.cursor = "pointer";
+}
+
+function applyHover(obj, state) {
+    if (!obj) {
+        console.warn("applyHover appelé avec obj null");
+        return;
+    }
+
+    console.log("🎨 applyHover →", obj.name, "| type:", getType(obj), "| state:", state);
+
+    if (!obj.userData.baseScale) {
+        obj.userData.baseScale = obj.scale.clone();
+        obj.userData.basePos = obj.position.clone();
+        console.log("→ BaseScale/Pos sauvegardés pour", obj.name);
+    }
+
+    const base = obj.userData.baseScale;
+    const basePos = obj.userData.basePos;
+
+    gsap.killTweensOf(obj.scale);
+    gsap.killTweensOf(obj.position);
+
+    const type = getType(obj);
+
+    if (type === "manga") {
+        console.log("→ Animation Manga/Projet appliquée");
+
+        gsap.to(obj.scale, {
+            x: state ? base.x * 1.2 : base.x,
+            y: state ? base.y * 1.2 : base.y,
+            z: state ? base.z * 1.2 : base.z,
+            duration: 0.25,
+            ease: "power2.out"
+        });
+
+        gsap.to(obj.position, {
+            y: state ? basePos.y + 0.4 : basePos.y,
+            duration: 0.25,
+            ease: "power2.out"
+        });
+    }
+
+    if (type === "projet") {
+
+        gsap.to(obj.scale, {
+            x: state ? base.x * 1.2 : base.x,
+            y: state ? base.y * 1.2 : base.y,
+            z: state ? base.z * 1.2 : base.z,
+            duration: 0.25
+        });
+
+        gsap.to(obj.position, {
+            y: state ? basePos.y + 0.4 : basePos.y,
+            duration: 0.25
+        });
+    }
+
+    if (type === "raycaster") {
+        gsap.to(obj.scale, {
+            x: state ? base.x * 1.3 : base.x,
+            y: state ? base.y * 1.3 : base.y,
+            z: base.z * 1.3,
+            duration: 0.2
+        });
+    }
+
+    if (type === "target") {
+        gsap.to(obj.scale, {
+            x: state ? base.x * 1.1 : base.x,
+            y: state ? base.y * 1.1 : base.y,
+            z: base.z * 1.1,
+            duration: 0.2
+        });
+    }
+}
+function resetHover() {
+    if (!currentHover) return;
+
+    applyHover(currentHover, false);
+    currentHover = null;
+}
+
+function onClick() {
+
+    if (isModalOpen || clickBlocked) return;
+
+    raycaster.setFromCamera(pointer, camera);
+
+    const hits = raycaster.intersectObjects(hitboxes);
+
+    if (!hits.length) return;
+
+    const obj = hits[0].object.userData.target;
+
+    const type = getType(obj);
+
+    // =========================
+    // 📌 CLICK MANGA → CAMERA MOVE
+    // =========================
+    if (type === "manga") {
+
+        const box = new THREE.Box3().setFromObject(obj);
+        const center = box.getCenter(new THREE.Vector3());
+
+        // position caméra légèrement devant
+        const offset = new THREE.Vector3(0, 2, 4);
+
+        const newCamPos = center.clone().add(offset);
+
+        // smooth move camera
+        gsap.to(camera.position, {
+            x: newCamPos.x,
+            y: newCamPos.y,
+            z: newCamPos.z,
+            duration: 1.2,
+            ease: "power2.inOut"
+        });
+
+        // OrbitControls target follow
+        gsap.to(controls.target, {
+            x: center.x,
+            y: center.y,
+            z: center.z,
+            duration: 1.2,
+            ease: "power2.inOut",
+            onUpdate: () => controls.update()
+        });
+
+        return;
+    }
+
+    // =========================
+    // EXISTING LOGIC
+    // =========================
+    if (obj.name.includes("_Raycaster")) {
+
+        document.getElementById("title").textContent = obj.name;
+        document.getElementById("modal").style.display = "flex";
+
+        isModalOpen = true;
+    }
+}
+
+function onMove(e) {
+
+    pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+}
+
+function onResize() {
+
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function animate() {
+
+    requestAnimationFrame(animate);
+
+    controls.update();
+
+    if (isLoaded) {
+        handleHover();
+    }
+
+    renderer.render(scene, camera);
+}
+
+</script>
+
+</body>
+</html>
